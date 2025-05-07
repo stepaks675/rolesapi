@@ -60,7 +60,7 @@ const initServer = () => {
             const users = result.rows.map(user => ({
                 discordid: user.user_id,
                 username: user.username,
-                roles: user.roles
+                roles: user.roles ? user.roles.split(', ') : []
             }));
             
             cache.data = users;
