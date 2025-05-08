@@ -95,6 +95,40 @@ const initServer = () => {
         }
     });
 
+    app.get('/api/discord/:idusername', authenticateApiKey, async (req, res) => {
+        try {
+            const idusername = req.params.idusername;
+            
+            const result = await pool.query(`
+                SELECT DISTINCT ON (user_id)
+                    user_id, 
+                    username, 
+                    roles
+                FROM channel_activity
+                WHERE on_server = true
+                AND (user_id = $1 OR username = $1)
+                ORDER BY user_id, last_message DESC
+                LIMIT 1
+            `, [idusername]);
+            
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            
+            const user = result.rows[0];
+            const userData = {
+                discordid: user.user_id,
+                username: user.username,
+                roles: user.roles ? user.roles.split(', ') : []
+            };
+            
+            res.json(userData);
+        } catch (error) {
+            console.error(`Error fetching user by ID/username: ${error.message}`);
+            res.status(500).json({ error: 'Failed to fetch user' });
+        }
+    });
+
     app.listen(PORT, () => {
         console.log(`Server is running on port ${PORT}`);
         testConnection();
