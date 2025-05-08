@@ -29,7 +29,29 @@ const testConnection = async () => {
     }
 };
 
+const authenticateApiKey = async (req, res, next) => {
+    const apiKey = req.headers['x-api-key'];
+    
+    if (!apiKey) {
+        return res.status(401).json({ error: 'API key is required' });
+    }
+    
+    try {
+        const result = await pool.query('SELECT apikey FROM apikeys WHERE apikey = $1', [apiKey]);
+        
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid API key' });
+        }
+        
+        next();
+    } catch (error) {
+        console.error(`API key validation error: ${error.message}`);
+        res.status(500).json({ error: 'Authentication error' });
+    }
+};
+
 const initServer = () => {
+    
     const PORT = process.env.PORT || 3000;
     const app = express();
 
@@ -39,7 +61,7 @@ const initServer = () => {
     }));
     app.use(express.json());
 
-    app.get('/api/discord', async (req, res) => {
+    app.get('/api/discord', authenticateApiKey, async (req, res) => {
         try {
             const now = Date.now();
             if (cache.data && cache.timestamp && (now - cache.timestamp < cache.cacheTime)) {
