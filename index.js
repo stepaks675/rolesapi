@@ -2,6 +2,7 @@ import pg from 'pg';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 dotenv.config();
 
@@ -50,6 +51,65 @@ const authenticateApiKey = async (req, res, next) => {
     }
 };
 
+const s3Client = new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+});
+
+/**
+ * @typedef {Object} ProfilePicture
+ * @property {string} url - URL of the profile picture
+ * @property {string} artistName - Name of the artist
+ */
+
+/**
+ * Fetch user profile pictures from S3/R2 storage
+ * @param {string} discordId - Discord ID of the user
+ * @returns {Promise<Array<ProfilePicture>>} Array of profile pictures
+ */
+async function fetchUserProfilePictures(discordId) {
+  try {
+    const command = new ListObjectsV2Command({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Prefix: `pfps/${discordId}-`, // List objects starting with pfps/{discordId}-
+    });
+
+    const response = await s3Client.send(command);
+
+    const pfps = (response.Contents || [])
+      .map(obj => {
+        if (!obj.Key) return null;
+
+        const filename = obj.Key.split('/').pop(); // Get the filename e.g., {discordId}-{artistName}.{ext}
+        if (!filename) return null;
+
+        const parts = filename.match(new RegExp(`^${discordId}-(.+?)\\.(.+)$`));
+        if (!parts || parts.length < 2) {
+          console.warn(`Skipping file with unexpected format: ${obj.Key}`);
+          return null; 
+        }
+        
+        const artistNameRaw = parts[1]; // Extract artistName
+        const artistName = artistNameRaw.replace(/_/g, ' '); // Replace underscores with spaces
+
+        return {
+          url: `${process.env.R2_PUBLIC_URL}/${obj.Key}`,
+          artistName: artistName || 'Unknown', // Use 'Unknown' if artistName extraction fails
+        };
+      })
+      .filter(pfp => pfp !== null); // Filter out null values
+
+    return pfps;
+  } catch (error) {
+    console.error('Error fetching profile pictures:', error);
+    return [];
+  }
+}
+
 const initServer = () => {
     
     const PORT = process.env.PORT || 3000;
@@ -92,6 +152,23 @@ const initServer = () => {
         } catch (error) {
             console.error(`Error fetching all users: ${error.message}`);
             res.status(500).json({ error: 'Failed to fetch all users' });
+        }
+    });
+
+    app.get('/api/discord/pfps/:discordId', authenticateApiKey, async (req, res) => {
+        try {
+            const { discordId } = req.params;
+            
+            const profilePictures = await fetchUserProfilePictures(discordId);
+            
+            if (profilePictures.length === 0) {
+                return res.status(404).json({ error: 'No profile pictures found for this user' });
+            }
+            
+            res.json(profilePictures);
+        } catch (error) {
+            console.error(`Error fetching profile pictures: ${error.message}`);
+            res.status(500).json({ error: 'Failed to fetch profile pictures' });
         }
     });
 
