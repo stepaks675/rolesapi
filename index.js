@@ -130,13 +130,13 @@ const initServer = () => {
             }
 
             const result = await pool.query(`
-                SELECT DISTINCT ON (user_id)
-                    user_id, 
-                    username, 
+                SELECT DISTINCT ON (discordid)
+                    discordid, 
+                    discordusername, 
                     roles
-                FROM channel_activity
+                FROM maptable
                 WHERE on_server = true
-                ORDER BY user_id, last_message DESC
+                ORDER BY discordid
             `);
             
             const users = result.rows.map(user => ({
@@ -172,19 +172,75 @@ const initServer = () => {
         }
     });
 
+    app.get('/api/twitter/core', authenticateApiKey, async (req, res) => {
+        try {
+            const minMessages = parseInt(req.query.msg, 10) || 500;
+
+            const freshSnapRes = await pool.query('SELECT id FROM snapshots ORDER BY id DESC LIMIT 1');
+
+            if (freshSnapRes.rows.length === 0) {
+                return res.status(404).json({ error: 'No snapshots found' });
+            }
+
+            const freshId = freshSnapRes.rows[0].id;
+
+            const weekAgoId = freshId - 42;
+
+            const nowRes = await pool.query(`
+                SELECT user_id, SUM(message_count) AS msg_now
+                FROM snapshot_data
+                WHERE snapshot_id = $1
+                GROUP BY user_id
+            `, [freshId]);
+            const nowMap = new Map(nowRes.rows.map(r => [r.user_id, parseInt(r.msg_now, 10)]));
+
+            const weekRes = await pool.query(`
+                SELECT user_id, SUM(message_count) AS msg_week_ago
+                FROM snapshot_data
+                WHERE snapshot_id = $1
+                GROUP BY user_id
+            `, [weekAgoId]);
+            const weekMap = new Map(weekRes.rows.map(r => [r.user_id, parseInt(r.msg_week_ago, 10)]));
+
+            const validUserIds = [];
+            for (const [userId, msgNow] of nowMap.entries()) {
+                const msgWeekAgo = weekMap.get(userId) || 0;
+                const diff = msgNow - msgWeekAgo;
+                if (diff > minMessages) {
+                    validUserIds.push(userId);
+                }
+            }
+
+            if (validUserIds.length === 0) {
+                return res.json([]);
+            }
+
+            const xhandlesRes = await pool.query(
+                `SELECT xhandle FROM maptable WHERE discordid = ANY($1) AND xhandle IS NOT NULL`,
+                [validUserIds]
+            );
+            const coreSet = new Set(xhandlesRes.rows.map(r => r.xhandle).filter(Boolean));
+
+            res.json(Array.from(coreSet));
+        } catch (error) {
+            console.error('Error in /api/twitter/core:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.get('/api/discord/:idusername', authenticateApiKey, async (req, res) => {
         try {
             const idusername = req.params.idusername;
             
             const result = await pool.query(`
-                SELECT DISTINCT ON (user_id)
-                    user_id, 
-                    username, 
+                SELECT DISTINCT ON (discordid)
+                    discordid, 
+                    discordusername, 
                     roles
-                FROM channel_activity
+                FROM maptable
                 WHERE on_server = true
-                AND (user_id = $1 OR username = $1)
-                ORDER BY user_id, last_message DESC
+                AND (discordid = $1 OR discordusername = $1)
+                ORDER BY discordid
                 LIMIT 1
             `, [idusername]);
             
@@ -194,8 +250,8 @@ const initServer = () => {
             
             const user = result.rows[0];
             const userData = {
-                discordid: user.user_id,
-                username: user.username,
+                discordid: user.discordid,
+                username: user.discordusername,
                 roles: user.roles ? user.roles.split(', ') : []
             };
             
