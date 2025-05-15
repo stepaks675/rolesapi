@@ -120,6 +120,24 @@ const initServer = () => {
         methods: ['GET', 'POST', 'PUT', 'DELETE']
     }));
     app.use(express.json());
+app.get('/api/twitter/roles', authenticateApiKey, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT DISTINCT xhandle 
+            FROM maptable 
+            WHERE on_server = true 
+              AND xhandle IS NOT NULL 
+              AND (
+                roles ILIKE '%PROVED UR LUV%' OR
+                roles ILIKE '%PROVEDURLUV(KOL)%'
+              )
+          `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching roles:', error);
+        res.status(500).json({ error: 'Failed to fetch roles' });
+    }
+});
 
     app.get('/api/discord', authenticateApiKey, async (req, res) => {
         try {
