@@ -140,8 +140,8 @@ const initServer = () => {
             `);
             
             const users = result.rows.map(user => ({
-                discordid: user.user_id,
-                username: user.username,
+                discordid: user.discordid,
+                username: user.discordusername,
                 roles: user.roles ? user.roles.split(', ') : []
             }));
             
