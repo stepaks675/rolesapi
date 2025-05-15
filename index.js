@@ -132,7 +132,7 @@ app.get('/api/twitter/roles', authenticateApiKey, async (req, res) => {
                 roles ILIKE '%PROVEDURLUV(KOL)%'
               )
           `);
-        res.json(result.rows);
+        res.json(result.rows.map(row => row.xhandle));
     } catch (error) {
         console.error('Error fetching roles:', error);
         res.status(500).json({ error: 'Failed to fetch roles' });
