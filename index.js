@@ -246,6 +246,52 @@ app.get('/api/twitter/roles', authenticateApiKey, async (req, res) => {
         }
     });
 
+    app.get('/api/discord/core', authenticateApiKey, async (req, res) => {
+        try {
+            const minMessages = parseInt(req.query.msg, 10) || 500;
+
+            const freshSnapRes = await pool.query('SELECT id FROM snapshots ORDER BY id DESC LIMIT 1');
+
+            if (freshSnapRes.rows.length === 0) {
+                return res.status(404).json({ error: 'No snapshots found' });
+            }
+
+            const freshId = freshSnapRes.rows[0].id;
+
+            const weekAgoId = freshId - 42;
+
+            const nowRes = await pool.query(`
+                SELECT user_id, SUM(message_count) AS msg_now
+                FROM snapshot_data
+                WHERE snapshot_id = $1
+                GROUP BY user_id
+            `, [freshId]);
+            const nowMap = new Map(nowRes.rows.map(r => [r.user_id, parseInt(r.msg_now, 10)]));
+
+            const weekRes = await pool.query(`
+                SELECT user_id, SUM(message_count) AS msg_week_ago
+                FROM snapshot_data
+                WHERE snapshot_id = $1
+                GROUP BY user_id
+            `, [weekAgoId]);
+            const weekMap = new Map(weekRes.rows.map(r => [r.user_id, parseInt(r.msg_week_ago, 10)]));
+
+            const validUserIds = [];
+            for (const [userId, msgNow] of nowMap.entries()) {
+                const msgWeekAgo = weekMap.get(userId) || 0;
+                const diff = msgNow - msgWeekAgo;
+                if (diff > minMessages) {
+                    validUserIds.push(userId);
+                }
+            }
+
+            res.json(validUserIds);
+        } catch (error) {
+            console.error('Error in /api/discord/core:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
     app.get('/api/discord/:idusername', authenticateApiKey, async (req, res) => {
         try {
             const idusername = req.params.idusername;
