@@ -246,7 +246,7 @@ app.get('/api/twitter/roles', authenticateApiKey, async (req, res) => {
         }
     });
 
-    app.get('/api/discord/core', authenticateApiKey, async (req, res) => {
+    app.get('/api/core/discord', authenticateApiKey, async (req, res) => {
         try {
             const minMessages = parseInt(req.query.msg, 10) || 500;
 
